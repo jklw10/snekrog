@@ -2,9 +2,9 @@
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
 const std = @import("std");
-
+const EndToken: u8 = 250;
 pub fn main() !void {
-    //const arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
     var commandBuffer = [_]u8{0} ** 128;
@@ -27,9 +27,13 @@ pub fn main() !void {
         const cmd = parser.untilOrEnd(' ');
         isServer = std.mem.eql(u8, cmd, "host");
         const name = parser.untilOrEnd(' ');
-        var port = parser.untilOrEnd(' ');
+        const port = parser.untilOrEnd(' ');
         if (isServer) {
-            playercount = parser.untilOrEnd('\r');
+            const count = parser.untilOrEnd('\r');
+            playercount = std.fmt.parseInt(u8, count, 10) catch |err| {
+                try stdout.print("invalid player count: {d} , err: {s}\n", .{ count, @errorName(err) });
+                break;
+            };
         } else {
             const uname = parser.untilOrEnd('\r');
             std.mem.copyForwards(u8, usernameb[0..], uname);
@@ -48,31 +52,56 @@ pub fn main() !void {
     }
     if (isServer) {
         var server = try address.listen(.{});
-        const client = try server.accept();
+
+        var clients: []std.net.Server.Connection = try arena.allocator().alloc(std.net.Server.Connection, playercount);
+        for (0..playercount) |i| {
+            clients[i] = try server.accept();
+        }
         defer server.deinit();
         while (true) {
             messageBuffer = [_]u8{0} ** 512;
-            try client.stream.read(&messageBuffer) catch |err| {
-                switch (err) {
-                    .ConnectionResetByPeer => {
-                        const client = try server.accept();
-                    },
-                }
-            };
-            try stdout.print("client: {any} sent message: {s}\n", .{ client.address, messageBuffer });
+            for (clients) |*client| {
+                _ = client.stream.reader().readUntilDelimiter(&messageBuffer, EndToken) catch |err| {
+                    switch (err) {
+                        error.ConnectionResetByPeer => {
+                            client.* = try server.accept();
+                        },
+                        else => return err,
+                    }
+                };
+                try stdout.print("client: {any} sent message: {s}\r\n", .{ client.address, messageBuffer });
+            }
         }
     } else {
         const server = try std.net.tcpConnectToAddress(address);
         while (true) {
-            //commandBuffer = [_]u8{0} ** 128;
+            commandBuffer = [_]u8{0} ** 128;
             //std.mem.copyForwards(u8, commandBuffer[0..], username[0..]);
             //commandBuffer[username.len] = ':';
-            _ = try stdin.readUntilDelimiter(commandBuffer[0..], '\r');
-            try server.writer().print("{s}:{s}", .{ username, commandBuffer });
+            const msize = try stdin.readUntilDelimiter(commandBuffer[0..], '\r');
+            try stdin.skipBytes(1, .{}); //skip the newline at the end >:)
+            try server.writer().print("{s}:{s}" ++ .{EndToken}, .{ username, commandBuffer[0..msize.len] });
         }
     }
     //std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 25532);
 }
+
+pub const Filter = struct {
+    pub fn toServer(text: []u8) void {
+        var pos = 0;
+        while (std.mem.indexOfScalarPos(u8, text, pos, EndToken)) |next| {
+            pos = next;
+            text[pos] = 251;
+        }
+    }
+    pub fn toClient(text: []u8) void {
+        var pos = 0;
+        while (std.mem.indexOfScalarPos(u8, text, pos, 251)) |next| {
+            pos = next;
+            text[pos] = EndToken;
+        }
+    }
+};
 
 pub const Peeker = struct {
     pos: usize = 0,
