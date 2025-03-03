@@ -2,11 +2,12 @@
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
 const std = @import("std");
+const utils = @import("utils");
 const EndToken: u8 = 250;
+const stdout = std.io.getStdOut().writer();
+const stdin = std.io.getStdIn().reader();
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const stdout = std.io.getStdOut().writer();
-    const stdin = std.io.getStdIn().reader();
     var commandBuffer = [_]u8{0} ** 128;
     var messageBuffer = [_]u8{0} ** 512;
     var usernameb = [_]u8{0} ** 32;
@@ -14,14 +15,15 @@ pub fn main() !void {
     var commanding = true;
     var isServer = false;
     var address: std.net.Address = undefined;
-    var playercount: u8 = 0;
+    var playerCount: u8 = 0;
+    var maxPlayers: u8 = 0;
     var parser = Peeker{
         .buf = &commandBuffer,
     };
     while (commanding) {
         defer commandBuffer = [_]u8{0} ** 128;
         _ = stdin.readUntilDelimiter(&commandBuffer, '\n') catch |err| {
-            try stdout.print("Command failed due to: {s}\n", .{@errorName(err)});
+            std.debug.print("Command failed due to: {s}\n", .{@errorName(err)});
             break;
         };
         const cmd = parser.untilOrEnd(' ');
@@ -30,8 +32,8 @@ pub fn main() !void {
         const port = parser.untilOrEnd(' ');
         if (isServer) {
             const count = parser.untilOrEnd('\r');
-            playercount = std.fmt.parseInt(u8, count, 10) catch |err| {
-                try stdout.print("invalid player count: {d} , err: {s}\n", .{ count, @errorName(err) });
+            maxPlayers = std.fmt.parseInt(u8, count, 10) catch |err| {
+                std.debug.print("invalid player count: {d} , err: {s}\n", .{ count, @errorName(err) });
                 break;
             };
         } else {
@@ -40,36 +42,47 @@ pub fn main() !void {
             username = usernameb[0..uname.len];
         }
         const prt = std.fmt.parseInt(u16, port, 10) catch |err| {
-            try stdout.print("invalid port number: {d} , err: {s}\n", .{ port, @errorName(err) });
+            std.debug.print("invalid port number: {d} , err: {s}\n", .{ port, @errorName(err) });
             break;
         };
         address = std.net.Address.parseIp(name, prt) catch |err| {
-            try stdout.print("invalid ip definition: name: {s} , port: {d}, err: {s}\n", .{ name, prt, @errorName(err) });
+            std.debug.print("invalid ip definition: name: {s} , port: {d}, err: {s}\n", .{ name, prt, @errorName(err) });
             break;
         };
         commanding = false;
-        try stdout.print("server: {any} at: {any}\n", .{ isServer, address });
+        std.debug.print("server: {any} at: {any}\n", .{ isServer, address });
     }
-    if (isServer) {
-        var server = try address.listen(.{});
 
-        var clients: []std.net.Server.Connection = try arena.allocator().alloc(std.net.Server.Connection, playercount);
-        for (0..playercount) |i| {
-            clients[i] = try server.accept();
-        }
+    if (isServer) {
+        var server = try address.listen(.{ .force_nonblocking = true });
+
+        var clients: []std.net.Server.Connection = try arena.allocator().alloc(std.net.Server.Connection, maxPlayers);
         defer server.deinit();
         while (true) {
+            if (playerCount < maxPlayers) {
+                if (try tryaccept(&server)) |pc| {
+                    clients[playerCount] = pc;
+                    playerCount += 1;
+                }
+            }
+
+            if (playerCount <= 0) continue;
             messageBuffer = [_]u8{0} ** 512;
-            for (clients) |*client| {
+            for (0..playerCount) |i| {
+                var client = &clients[i];
                 _ = client.stream.reader().readUntilDelimiter(&messageBuffer, EndToken) catch |err| {
                     switch (err) {
                         error.ConnectionResetByPeer => {
-                            client.* = try server.accept();
+                            if (try tryaccept(&server)) |pc| {
+                                client.* = pc;
+                            } else {
+                                continue;
+                            }
                         },
                         else => return err,
                     }
                 };
-                try stdout.print("client: {any} sent message: {s}\r\n", .{ client.address, messageBuffer });
+                std.debug.print("client: {any} sent message: {s}\r\n", .{ client.address, messageBuffer });
             }
         }
     } else {
@@ -84,6 +97,35 @@ pub fn main() !void {
         }
     }
     //std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 25532);
+}
+
+pub fn tryaccept(server: anytype) !?std.net.Server.Connection {
+    if (server.accept()) |pc| {
+        return pc;
+    } else |err| {
+        switch (err) {
+            error.WouldBlock => return null,
+            else => return err,
+        }
+    }
+}
+pub fn Map(size: ivec2) type {
+    return struct {
+        data: []u8 = [_]u8{0} ** (size.x * size.y),
+        pub fn set(self: Map, pos: ivec2, ch: u8) void {
+            self.data[pos.x + pos.y * size.x] = ch;
+        }
+        pub fn get(self: Map, pos: ivec2) u8 {
+            return self.data[pos.x + pos.y * size.x];
+        }
+    };
+}
+pub const ivec2 = utils.vec2(i8);
+pub const visible: Map(.{ .x = 16, .y = 16 }) = .{};
+pub const world: Map(.{ .x = 128, .y = 128 }) = .{};
+
+pub fn display(writer: anytype) void {
+    try writer.print("{s}", .{visible});
 }
 
 pub const Filter = struct {
