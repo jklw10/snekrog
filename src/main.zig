@@ -6,6 +6,42 @@ const utils = @import("utils");
 const display = @import("display");
 const EndToken: u8 = 250;
 
+const Slock = struct {
+    var loc: *std.Thread.Mutex = undefined;
+    pub fn init() Slock {
+        lock = .{};
+    }
+    pub fn lockfor() @TypeOf(&scopeEnd) {
+        loc.*.lock();
+        return scopeEnd;
+    }
+
+    fn scopeEnd(_: void) !void {
+        return loc.*.unlock();
+    }
+};
+//if (try tryaccept(server)) |pc| {
+//  Slock.lockfor(clients.lock)({
+//      clients.value.clients.*[clients.value.playerCount.*] = pc;
+//      clients.value.playerCount.* += 1;
+//  });
+//}
+//if (try tryaccept(server)) |pc| {
+//              clients.lock.lock();
+//              defer clients.lock.unlock();
+//              clients.value.clients.*[clients.value.playerCount.*] = pc;
+//              clients.value.playerCount.* += 1;
+//}
+
+//const delta = Perf.perf()({
+//    std.debug.print("Perfing\n", .{});
+//    std.debug.print("Perfing\n", .{});
+//    std.debug.print("Perfing\n", .{});
+//    std.debug.print("Perfing\n", .{});
+//    std.debug.print("Perfing\n", .{});
+//    std.debug.print("Perfing\n", .{});
+//});
+//std.debug.print("Delta: {d}\n", .{delta});
 pub fn vlock(vtype: type) type {
     return struct {
         lock: std.Thread.Mutex = .{},
