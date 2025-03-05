@@ -3,20 +3,30 @@
 //! is to delete this file and start with root.zig instead.
 const std = @import("std");
 const utils = @import("utils");
+const display = @import("display");
 const EndToken: u8 = 250;
-const stdout = std.io.getStdOut().writer();
-const stdin = std.io.getStdIn().reader();
+
+pub fn vlock(vtype: type) type {
+    return struct {
+        lock: std.Thread.Mutex = .{},
+        value: vtype,
+    };
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const stdout = std.io.getStdOut().writer();
+    const stdin = std.io.getStdIn().reader();
     var commandBuffer = [_]u8{0} ** 128;
     var messageBuffer = [_]u8{0} ** 512;
+    _ = .{ stdin, stdout, &messageBuffer };
     var usernameb = [_]u8{0} ** 32;
     var username: []u8 = undefined;
     var commanding = true;
     var isServer = false;
     var address: std.net.Address = undefined;
-    var playerCount: u8 = 0;
-    var maxPlayers: u8 = 0;
+    var playerCount: usize = 0;
+    var maxPlayers: usize = 0;
     var parser = Peeker{
         .buf = &commandBuffer,
     };
@@ -57,34 +67,14 @@ pub fn main() !void {
         var server = try address.listen(.{ .force_nonblocking = true });
 
         var clients: []std.net.Server.Connection = try arena.allocator().alloc(std.net.Server.Connection, maxPlayers);
+        const lval = .{
+            .clients = &clients,
+            .playerCount = &playerCount,
+        };
+        var clLock = vlock(@TypeOf(lval)){ .value = lval };
         defer server.deinit();
-        while (true) {
-            if (playerCount < maxPlayers) {
-                if (try tryaccept(&server)) |pc| {
-                    clients[playerCount] = pc;
-                    playerCount += 1;
-                }
-            }
-
-            if (playerCount <= 0) continue;
-            messageBuffer = [_]u8{0} ** 512;
-            for (0..playerCount) |i| {
-                var client = &clients[i];
-                _ = client.stream.reader().readUntilDelimiter(&messageBuffer, EndToken) catch |err| {
-                    switch (err) {
-                        error.ConnectionResetByPeer => {
-                            if (try tryaccept(&server)) |pc| {
-                                client.* = pc;
-                            } else {
-                                continue;
-                            }
-                        },
-                        else => return err,
-                    }
-                };
-                std.debug.print("client: {any} sent message: {s}\r\n", .{ client.address, messageBuffer });
-            }
-        }
+        var t = try std.Thread.spawn(.{}, acceptor, .{ &server, &clLock, maxPlayers });
+        _ = &t;
     } else {
         const server = try std.net.tcpConnectToAddress(address);
         while (true) {
@@ -99,8 +89,40 @@ pub fn main() !void {
     //std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 25532);
 }
 
-pub fn tryaccept(server: anytype) !?std.net.Server.Connection {
-    if (server.accept()) |pc| {
+fn acceptor(server: *std.net.Server, clients: anytype, maxPlayers: usize) !void {
+    while (true) {
+        if (clients.value.playerCount.* < maxPlayers) {
+            if (try tryaccept(server)) |pc| {
+                clients.lock.lock();
+                defer clients.lock.unlock();
+                clients.value.clients.*[clients.value.playerCount.*] = pc;
+                clients.value.playerCount.* += 1;
+            }
+        }
+
+        if (clients.value.playerCount.* <= 0) continue;
+        var messageBuffer = [_]u8{0} ** 512;
+        for (0..clients.value.playerCount.*) |i| {
+            var client = &clients.value.clients.*[i];
+            _ = client.stream.reader().readUntilDelimiter(&messageBuffer, EndToken) catch |err| {
+                switch (err) {
+                    error.ConnectionResetByPeer => {
+                        if (try tryaccept(server)) |pc| {
+                            client.* = pc;
+                        } else {
+                            continue;
+                        }
+                    },
+                    else => return err,
+                }
+            };
+            std.debug.print("client: {any} sent message: {s}\r\n", .{ client.address, messageBuffer });
+        }
+    }
+}
+
+pub fn tryaccept(server: *std.net.Server) !?std.net.Server.Connection {
+    if (server.*.accept()) |pc| {
         return pc;
     } else |err| {
         switch (err) {
@@ -124,8 +146,8 @@ pub const ivec2 = utils.vec2(i8);
 pub const visible: Map(.{ .x = 16, .y = 16 }) = .{};
 pub const world: Map(.{ .x = 128, .y = 128 }) = .{};
 
-pub fn display(writer: anytype) void {
-    try writer.print("{s}", .{visible});
+pub fn render(writer: anytype) void {
+    _ = writer;
 }
 
 pub const Filter = struct {
