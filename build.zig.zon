@@ -27,6 +27,10 @@
             .url = "https://github.com/ziglibs/zgl/archive/d8b25ff8e73de9e3540ee85481981e9ef7ce191b.tar.gz",
             .hash = "12205cfce3b6a70f152447e39f6f74a4a5f3ccd6abca33ea6aaadb675797dc3329e9",
         },
+        .tardy = .{
+            .url = "git+https://github.com/mookums/tardy?ref=v0.2.0#543e6b01cba3caa691960a4a5a54d3419969f2d8",
+            .hash = "12202bc544928f0bb67ab4a30d3ff6d54c9d62643296c8d04303762b477b71fd002d",
+        },
     },
     .paths = .{
         "build.zig",

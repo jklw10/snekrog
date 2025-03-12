@@ -1,51 +1,18 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
 const std = @import("std");
-const utils = @import("utils");
-const display = @import("display");
+const utils = @import("utils.zig");
+const display = @import("display.zig");
 const EndToken: u8 = 250;
 
-const Slock = struct {
-    var loc: *std.Thread.Mutex = undefined;
-    pub fn init() Slock {
-        lock = .{};
-    }
-    pub fn lockfor() @TypeOf(&scopeEnd) {
-        loc.*.lock();
-        return scopeEnd;
-    }
-
-    fn scopeEnd(_: void) !void {
-        return loc.*.unlock();
-    }
-};
-//if (try tryaccept(server)) |pc| {
-//  Slock.lockfor(clients.lock)({
-//      clients.value.clients.*[clients.value.playerCount.*] = pc;
-//      clients.value.playerCount.* += 1;
-//  });
-//}
-//if (try tryaccept(server)) |pc| {
-//              clients.lock.lock();
-//              defer clients.lock.unlock();
-//              clients.value.clients.*[clients.value.playerCount.*] = pc;
-//              clients.value.playerCount.* += 1;
-//}
-
-//const delta = Perf.perf()({
-//    std.debug.print("Perfing\n", .{});
-//    std.debug.print("Perfing\n", .{});
-//    std.debug.print("Perfing\n", .{});
-//    std.debug.print("Perfing\n", .{});
-//    std.debug.print("Perfing\n", .{});
-//    std.debug.print("Perfing\n", .{});
-//});
-//std.debug.print("Delta: {d}\n", .{delta});
 pub fn vlock(vtype: type) type {
     return struct {
+        const Self = @This();
         lock: std.Thread.Mutex = .{},
         value: vtype,
+        pub fn lockfor(self: *Self, t: void) void {
+            self.lock.lock();
+            t;
+            self.lock.unlock();
+        }
     };
 }
 
@@ -111,6 +78,7 @@ pub fn main() !void {
         defer server.deinit();
         var t = try std.Thread.spawn(.{}, acceptor, .{ &server, &clLock, maxPlayers });
         _ = &t;
+        while (true) {}
     } else {
         const server = try std.net.tcpConnectToAddress(address);
         while (true) {
@@ -129,10 +97,11 @@ fn acceptor(server: *std.net.Server, clients: anytype, maxPlayers: usize) !void 
     while (true) {
         if (clients.value.playerCount.* < maxPlayers) {
             if (try tryaccept(server)) |pc| {
-                clients.lock.lock();
-                defer clients.lock.unlock();
-                clients.value.clients.*[clients.value.playerCount.*] = pc;
-                clients.value.playerCount.* += 1;
+                clients.lockfor({
+                    std.debug.print("pj", .{});
+                    clients.value.clients.*[clients.value.playerCount.*] = pc;
+                    clients.value.playerCount.* += 1;
+                });
             }
         }
 
