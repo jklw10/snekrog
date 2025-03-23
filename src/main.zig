@@ -41,7 +41,7 @@ pub fn main() !void {
         };
         const cmd = parser.untilOrEnd(' ');
         isServer = std.mem.eql(u8, cmd, "host");
-        const name = parser.untilOrEnd(' ');
+        const addr = parser.untilOrEnd(' ');
         const port = parser.untilOrEnd(' ');
         if (isServer) {
             const count = parser.untilOrEnd('\r');
@@ -58,8 +58,8 @@ pub fn main() !void {
             std.debug.print("invalid port number: {d} , err: {s}\n", .{ port, @errorName(err) });
             break;
         };
-        address = std.net.Address.parseIp(name, prt) catch |err| {
-            std.debug.print("invalid ip definition: name: {s} , port: {d}, err: {s}\n", .{ name, prt, @errorName(err) });
+        address = std.net.Address.resolveIp(addr, prt) catch |err| {
+            std.debug.print("invalid ip definition: address: {s} , port: {d}, err: {s}\n", .{ addr, prt, @errorName(err) });
             break;
         };
         commanding = false;
